@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from "react";
 // import Select from "react-select";
 
+
 import SymbolSearch from "../components/SymbolSearch";
 import PopularTicker from "../components/PopularTicker";
 import TimeframeSelector from "../components/TimeFrameSelector";
 import Spinner from "../components/Spinner";
-import DebugPanel from "../components/DebugPanel";
 
 // Indicator subcomponents
 import PriceChart from "../components/charts/PriceChart";
@@ -24,23 +24,6 @@ import CciChart from "../components/charts/CciChart";
 
 
 import Select, { components } from "react-select";
-
-// 🛠️ Debug logging functions
-const logInfo = (context, message, data = null) => {
-  console.log(`🟢 [${context}] ${message}`, data || '');
-};
-
-const logError = (context, error, data = null) => {
-  console.error(`🔴 [${context}] ERROR:`, {
-    message: error.message,
-    stack: error.stack,
-    ...data
-  });
-};
-
-const logWarn = (context, message, data = null) => {
-  console.warn(`🟡 [${context}] ${message}`, data || '');
-};
 
 // ✅ Custom Option component with checkbox
 const CheckboxOption = (props) => (
@@ -87,50 +70,9 @@ export default function BasicCharts() {
   const [limit, setLimit] = useState(initialLimit);
   const [candles, setCandles] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [wsError, setWsError] = useState(null);
-  const [connectionStatus, setConnectionStatus] = useState('disconnected');
 
   const wsRef = useRef(null);
-  
-  // Environment variable debugging and fallback
-  const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://mav-kbot-backend-vercel.vercel.app';
-  
-  // Debug logging for environment variables
-  console.log('🔧 Environment Debug:', {
-    VITE_API_BASE_URL: import.meta.env.VITE_API_BASE_URL,
-    API_BASE: API_BASE,
-    isDev: import.meta.env.DEV,
-    mode: import.meta.env.MODE,
-    allEnvVars: import.meta.env
-  });
-  
-  // Debug logging for environment variables
-  console.log('🔧 Environment Debug:', {
-    VITE_API_BASE_URL: import.meta.env.VITE_API_BASE_URL,
-    API_BASE: API_BASE,
-    isDev: import.meta.env.DEV,
-    mode: import.meta.env.MODE,
-    allEnvVars: import.meta.env
-  });
-
-  // Debug logging
-  const logError = (context, error, additionalInfo = {}) => {
-    console.error(`[${context}] Error:`, {
-      message: error.message,
-      stack: error.stack,
-      ...additionalInfo,
-      timestamp: new Date().toISOString(),
-      apiBase: API_BASE
-    });
-  };
-
-  const logInfo = (context, message, data = {}) => {
-    console.log(`[${context}] ${message}:`, {
-      ...data,
-      timestamp: new Date().toISOString()
-    });
-  };
+  const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
   // Dropdown options
   const allIndicators = [
@@ -170,50 +112,11 @@ export default function BasicCharts() {
   async function fetchChart() {
     try {
       setLoading(true);
-      setError(null);
-      
-      const url = `${API_BASE}/api/data?${buildQuery()}`;
-      logInfo('FETCH_CHART', 'Starting API request', { url, symbol, timeframe, limit });
-      
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        timeout: 30000, // 30 second timeout
-      });
-      
-      logInfo('FETCH_CHART', 'Response received', { 
-        status: res.status, 
-        statusText: res.statusText,
-        headers: Object.fromEntries(res.headers.entries())
-      });
-      
-      if (!res.ok) {
-        const errorText = await res.text();
-        let errorData;
-        try {
-          errorData = JSON.parse(errorText);
-        } catch {
-          errorData = { detail: errorText || `HTTP ${res.status}: ${res.statusText}` };
-        }
-        
-        throw new Error(`API Error (${res.status}): ${errorData.detail || errorData.message || 'Unknown error'}`);
-      }
-      
+      const res = await fetch(`${API_BASE}/api/data?${buildQuery()}`);
       const json = await res.json();
-      logInfo('FETCH_CHART', 'Data parsed successfully', { dataLength: Array.isArray(json) ? json.length : 'not array' });
-      
-      if (Array.isArray(json)) {
-        setCandles(json);
-        setError(null);
-      } else {
-        throw new Error('Invalid data format: Expected array of candles');
-      }
+      if (Array.isArray(json)) setCandles(json);
     } catch (err) {
-      logError('FETCH_CHART', err, { symbol, timeframe, limit, url: `${API_BASE}/api/data?${buildQuery()}` });
-      setError(`Failed to fetch chart data: ${err.message}`);
-      setCandles([]);
+      console.error("Fetch error:", err);
     } finally {
       setLoading(false);
     }
@@ -221,111 +124,42 @@ export default function BasicCharts() {
 
   // 🔹 Connect WebSocket
   function connectWS() {
-    try {
-      if (wsRef.current) {
-        wsRef.current.onopen = null;
-        wsRef.current.onmessage = null;
-        wsRef.current.onclose = null;
-        wsRef.current.onerror = null;
-        if (wsRef.current.readyState === WebSocket.OPEN) {
-          wsRef.current.close();
-        }
-        wsRef.current = null;
-      }
-      
-      setWsError(null);
-      setConnectionStatus('connecting');
-      
-      // Use proper WebSocket protocol based on API URL
-      const wsProtocol = API_BASE.startsWith('https://') ? 'wss://' : 'ws://';
-      const wsHost = API_BASE.replace(/^https?:\/\//, '');
-      const url = `${wsProtocol}${wsHost}/ws/data?${buildQuery()}`;
-      
-      logInfo('WEBSOCKET', 'Attempting connection', { url, symbol, timeframe, limit });
-      
-      const ws = new WebSocket(url);
-      wsRef.current = ws;
-
-      ws.onopen = (event) => {
-        logInfo('WEBSOCKET', 'Connection opened successfully');
-        setConnectionStatus('connected');
-        setWsError(null);
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-          logInfo('WEBSOCKET', 'Message received', { type: msg.type, hasCandles: !!msg.candles, hasCandle: !!msg.candle });
-          
-          if (msg.type === "snapshot" && msg.candles) {
-            if (Array.isArray(msg.candles)) {
-              setCandles(msg.candles);
-              setError(null);
-            } else {
-              logError('WEBSOCKET', new Error('Invalid snapshot data format'), { msg });
-            }
-          }
-          
-          if (msg.type === "update" && msg.candle) {
-            setCandles((prev) => {
-              try {
-                const updated = [...prev];
-                const c = msg.candle;
-                if (msg.is_new_bar) {
-                  return [...updated, c].slice(-limit);
-                } else {
-                  if (updated.length > 0) {
-                    updated[updated.length - 1] = c;
-                  }
-                  return [...updated];
-                }
-              } catch (updateError) {
-                logError('WEBSOCKET', updateError, { msg, prevLength: prev.length });
-                return prev;
-              }
-            });
-          }
-          
-          if (msg.type === "error") {
-            logError('WEBSOCKET', new Error(msg.message || 'WebSocket server error'), { msg });
-            setWsError(`Server error: ${msg.message || 'Unknown error'}`);
-          }
-        } catch (e) {
-          logError('WEBSOCKET', e, { rawData: event.data });
-          setWsError(`Failed to parse WebSocket message: ${e.message}`);
-        }
-      };
-
-      ws.onerror = (error) => {
-        logError('WEBSOCKET', new Error('WebSocket connection error'), { error, url });
-        setConnectionStatus('error');
-        setWsError('WebSocket connection failed');
-      };
-
-      ws.onclose = (event) => {
-        logInfo('WEBSOCKET', 'Connection closed', { 
-          code: event.code, 
-          reason: event.reason, 
-          wasClean: event.wasClean 
-        });
-        
-        setConnectionStatus('disconnected');
-        
-        // Only attempt reconnection if it wasn't a clean close
-        if (!event.wasClean && event.code !== 1000) {
-          setWsError('Connection lost, attempting to reconnect...');
-          setTimeout(() => {
-            logInfo('WEBSOCKET', 'Attempting reconnection');
-            connectWS();
-          }, 3000);
-        }
-      };
-      
-    } catch (err) {
-      logError('WEBSOCKET', err, { API_BASE });
-      setConnectionStatus('error');
-      setWsError(`Failed to create WebSocket connection: ${err.message}`);
+    if (wsRef.current) {
+      wsRef.current.onclose = null;
+      wsRef.current.close();
     }
+    
+    // Use proper WebSocket protocol based on API URL
+    const wsProtocol = API_BASE.startsWith('https://') ? 'wss://' : 'ws://';
+    const wsHost = API_BASE.replace(/^https?:\/\//, '');
+    const url = `${wsProtocol}${wsHost}/ws/data?${buildQuery()}`;
+    
+    const ws = new WebSocket(url);
+    wsRef.current = ws;
+
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === "snapshot" && msg.candles) {
+          setCandles(msg.candles);
+        }
+        if (msg.type === "update" && msg.candle) {
+          setCandles((prev) => {
+            const updated = [...prev];
+            const c = msg.candle;
+            if (msg.is_new_bar) return [...updated, c].slice(-limit);
+            updated[updated.length - 1] = c;
+            return [...updated];
+          });
+        }
+      } catch (e) {
+        console.error("WS parse error:", e);
+      }
+    };
+
+    ws.onclose = () => {
+      setTimeout(() => connectWS(), 3000);
+    };
   }
 
   // 🔹 Effect: sync URL + fetch + connect WS
@@ -353,41 +187,6 @@ export default function BasicCharts() {
   return (
     <div className="p-5 bg-gray-900 min-h-screen text-white">
       <h1 className="text-center text-2xl font-bold mb-4">Crypto Live Chart</h1>
-
-      {/* Error Display */}
-      {error && (
-        <div className="mb-4 p-4 bg-red-900/50 border border-red-500 rounded-lg">
-          <div className="flex items-center gap-2">
-            <span className="text-red-400">⚠️</span>
-            <span className="font-semibold text-red-300">API Error:</span>
-          </div>
-          <p className="text-red-200 mt-1">{error}</p>
-        </div>
-      )}
-
-      {/* WebSocket Status */}
-      <div className="mb-4 flex items-center justify-center gap-4">
-        <div className="flex items-center gap-2">
-          <div className={`w-3 h-3 rounded-full ${
-            connectionStatus === 'connected' ? 'bg-green-500' :
-            connectionStatus === 'connecting' ? 'bg-yellow-500 animate-pulse' :
-            connectionStatus === 'error' ? 'bg-red-500' :
-            'bg-gray-500'
-          }`}></div>
-          <span className="text-sm text-gray-300">
-            {connectionStatus === 'connected' ? 'Live' :
-             connectionStatus === 'connecting' ? 'Connecting...' :
-             connectionStatus === 'error' ? 'Connection Error' :
-             'Disconnected'}
-          </span>
-        </div>
-        
-        {wsError && (
-          <div className="text-xs text-red-400 max-w-md truncate" title={wsError}>
-            {wsError}
-          </div>
-        )}
-      </div>
 
       {/* Controls */}
       <div className="flex flex-wrap gap-4 justify-center mb-4">
@@ -461,29 +260,12 @@ export default function BasicCharts() {
         </select>
       </div>
 
-      {/* Loading State */}
-      {loading && (
-        <div className="mb-4 flex items-center justify-center">
-          <Spinner />
-          <span className="ml-3 text-gray-300">Loading chart data...</span>
-        </div>
-      )}
-
       {/* Charts */}
       <div className="space-y-6">
-        {candles.length === 0 && !loading && !error ? (
-          <div className="text-center py-12">
-            <div className="text-gray-400 text-lg mb-2">No chart data available</div>
-            <div className="text-gray-500 text-sm">
-              Try selecting a different symbol or timeframe
-            </div>
-          </div>
-        ) : (
-          <div className="w-full">
-            <PriceChart candles={candles} symbol={symbol} />
-            {selectedIndicators.includes("Volumes") && <VolumeChart candles={candles} />}
-          </div>
-        )}
+        <div className="w-full">
+          <PriceChart candles={candles} symbol={symbol} />
+          {selectedIndicators.includes("Volumes") && <VolumeChart candles={candles} />}
+        </div>
         {selectedIndicators.includes("RSI") && (
           <RSIChart candles={candles} rsiPeriod={rsiPeriod} setRsiPeriod={setRsiPeriod} />
         )}
@@ -507,17 +289,6 @@ export default function BasicCharts() {
       </div>
 
       <PopularTicker />
-      
-      <DebugPanel 
-        apiBase={API_BASE}
-        connectionStatus={connectionStatus}
-        wsError={wsError}
-        error={error}
-        candlesCount={chartData?.length || 0}
-        selectedIndicators={selectedIndicators}
-        symbol={symbol}
-        timeframe={timeframe}
-      />
     </div>
   );
 }
