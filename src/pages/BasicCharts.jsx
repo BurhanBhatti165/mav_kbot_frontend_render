@@ -128,7 +128,12 @@ export default function BasicCharts() {
       wsRef.current.onclose = null;
       wsRef.current.close();
     }
-    const url = `ws://127.0.0.1:8000/ws/data?${buildQuery()}`;
+    
+    // Use proper WebSocket protocol based on API URL
+    const wsProtocol = API_BASE.startsWith('https://') ? 'wss://' : 'ws://';
+    const wsHost = API_BASE.replace(/^https?:\/\//, '');
+    const url = `${wsProtocol}${wsHost}/ws/data?${buildQuery()}`;
+    
     const ws = new WebSocket(url);
     wsRef.current = ws;
 
