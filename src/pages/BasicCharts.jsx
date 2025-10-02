@@ -72,7 +72,9 @@ export default function BasicCharts() {
   const [loading, setLoading] = useState(false);
 
   const wsRef = useRef(null);
+  const pollRef = useRef(null);
   const API_BASE = import.meta.env.VITE_API_BASE_URL;
+  const ENABLE_WS = String(import.meta.env.VITE_ENABLE_WS ?? "true").toLowerCase() === "true";
 
   // Dropdown options
   const allIndicators = [
@@ -124,16 +126,49 @@ export default function BasicCharts() {
 
   // 🔹 Connect WebSocket
   function connectWS() {
+    // If WS disabled (env) or API_BASE is a vercel host (which doesn't support WS), skip WS and use polling
+    const isVercelHost = (API_BASE || "").includes("vercel.app");
+    if (!ENABLE_WS || isVercelHost) {
+      // ensure any socket is closed
+      if (wsRef.current) {
+        wsRef.current.onclose = null;
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      // start polling
+      if (pollRef.current) clearInterval(pollRef.current);
+      const POLL_MS = {
+        // Short but consistent (non-decreasing) polling intervals per timeframe
+        "1m": 2000,
+        "3m": 3000,
+        "5m": 5000,
+        "15m": 8000,
+        "30m": 12000,
+        "1h": 15000,
+        "2h": 20000,
+        "4h": 30000,
+        "6h": 45000,
+        "8h": 60000,
+        "12h": 90000,
+        "1d": 120000,
+        "3d": 180000,
+        "1w": 240000,
+        "1M": 300000,
+      };
+      pollRef.current = setInterval(() => {
+        fetchChart();
+      }, POLL_MS[timeframe] || 10000);
+      return;
+    }
     if (wsRef.current) {
       wsRef.current.onclose = null;
       wsRef.current.close();
     }
-    
-    // Use proper WebSocket protocol based on API URL
-    const wsProtocol = API_BASE.startsWith('https://') ? 'wss://' : 'ws://';
-    const wsHost = API_BASE.replace(/^https?:\/\//, '');
-    const url = `${wsProtocol}${wsHost}/ws/data?${buildQuery()}`;
-    
+  // Derive WS base from API base (supports http->ws, https->wss)
+  const httpBase = (API_BASE || "http://127.0.0.1:8000").replace(/\/$/, "");
+  const wsScheme = httpBase.startsWith("https") ? "wss" : "ws";
+  const wsBase = httpBase.replace(/^https?/, wsScheme);
+  const url = `${wsBase}/ws/data?${buildQuery()}`;
     const ws = new WebSocket(url);
     wsRef.current = ws;
 
@@ -173,6 +208,11 @@ export default function BasicCharts() {
     window.history.replaceState({}, "", url);
 
     fetchChart().then(() => {
+      // reset any existing poller
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
       connectWS();
     });
 
@@ -180,6 +220,10 @@ export default function BasicCharts() {
       if (wsRef.current) {
         wsRef.current.onclose = null;
         wsRef.current.close();
+      }
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
       }
     };
   }, [symbol, timeframe, limit, selectedIndicators, rsiPeriod, smaPeriods, emaPeriods]);
@@ -189,9 +233,13 @@ export default function BasicCharts() {
       <h1 className="text-center text-2xl font-bold mb-4">Crypto Live Chart</h1>
 
       {/* Controls */}
-      <div className="flex flex-wrap gap-4 justify-center mb-4">
-        <SymbolSearch onSelect={(sym) => setSymbol(sym)} />
-        <TimeframeSelector current={timeframe} onSelect={setTimeframe} />
+      <div className="flex flex-wrap flex-col gap-4 justify-center items-center mb-4">
+        <div>
+          <SymbolSearch onSelect={(sym) => setSymbol(sym)} />
+        </div>
+        <div>
+          <TimeframeSelector current={timeframe} onSelect={setTimeframe} />
+        </div>
       </div>
 
       {/* Dropdown + Limit Selector */}

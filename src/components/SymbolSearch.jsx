@@ -5,31 +5,9 @@ export default function SymbolSearch({ onSelect }) {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
-  const [error, setError] = useState(null);
 
-  const API_BASE = import.meta.env.VITE_API_BASE_URL || 'https://mav-kbot-backend-vercel.vercel.app';
+  const API_BASE = import.meta.env.VITE_API_BASE_URL;
   const wrapperRef = useRef(null);
-
-  // Debug API_BASE
-  console.log('🔍 SymbolSearch API_BASE:', API_BASE);
-
-  // Debug logging
-  const logError = (context, error, additionalInfo = {}) => {
-    console.error(`[SYMBOL_SEARCH][${context}] Error:`, {
-      message: error.message,
-      stack: error.stack,
-      ...additionalInfo,
-      timestamp: new Date().toISOString(),
-      apiBase: API_BASE
-    });
-  };
-
-  const logInfo = (context, message, data = {}) => {
-    console.log(`[SYMBOL_SEARCH][${context}] ${message}:`, {
-      ...data,
-      timestamp: new Date().toISOString()
-    });
-  };
 
   // Close dropdown if clicked outside
   useEffect(() => {
@@ -50,61 +28,23 @@ export default function SymbolSearch({ onSelect }) {
 
     const timeout = setTimeout(async () => {
       setLoading(true);
-      setError(null);
-      
       try {
         const url = query
-          ? `${API_BASE}/api/search?q=${encodeURIComponent(query)}`
-          : `${API_BASE}/api/search`;
-          
-        logInfo('FETCH_SYMBOLS', 'Starting request', { url, query });
+          ? `${API_BASE}/api/search?q=${query}`
+          : `${API_BASE}/api/search`; // ✅ empty query returns all
 
-        const res = await fetch(url, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          timeout: 15000, // 15 second timeout
-        });
-        
-        logInfo('FETCH_SYMBOLS', 'Response received', { 
-          status: res.status, 
-          statusText: res.statusText 
-        });
-        
-        if (!res.ok) {
-          const errorText = await res.text();
-          let errorData;
-          try {
-            errorData = JSON.parse(errorText);
-          } catch {
-            errorData = { detail: errorText || `HTTP ${res.status}: ${res.statusText}` };
-          }
-          
-          throw new Error(`Search API Error (${res.status}): ${errorData.detail || errorData.message || 'Unknown error'}`);
-        }
-        
+        const res = await fetch(url);
         let data;
         try {
           const json = await res.json();
-          data = json.symbols || json || [];
+          data = json.symbols || [];
         } catch (parseErr) {
-          logError('FETCH_SYMBOLS', parseErr, { responseStatus: res.status });
-          throw new Error('Failed to parse response as JSON');
-        }
-        
-        if (!Array.isArray(data)) {
-          logError('FETCH_SYMBOLS', new Error('Invalid data format'), { data });
+          console.error("Response not JSON:", parseErr);
           data = [];
         }
-        
-        logInfo('FETCH_SYMBOLS', 'Data processed successfully', { symbolCount: data.length });
         setResults(data);
-        setError(null);
-        
       } catch (err) {
-        logError('FETCH_SYMBOLS', err, { query, url: query ? `${API_BASE}/api/search?q=${query}` : `${API_BASE}/api/search` });
-        setError(err.message);
+        console.error("Error fetching symbols:", err);
         setResults([]);
       } finally {
         setLoading(false);
@@ -112,7 +52,7 @@ export default function SymbolSearch({ onSelect }) {
     }, 300);
 
     return () => clearTimeout(timeout);
-  }, [query, showDropdown, API_BASE]);
+  }, [query, showDropdown]);
 
   return (
     <div className="relative max-w-md mx-auto mb-5" ref={wrapperRef}>
@@ -124,19 +64,14 @@ export default function SymbolSearch({ onSelect }) {
         onFocus={() => setShowDropdown(true)}
         onChange={(e) => setQuery(e.target.value.toUpperCase())}
       />
-      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">
+      {/* <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">
         🔍
-      </span>
+      </span> */}
 
       {/* Dropdown */}
       {showDropdown && (
         <ul className="absolute left-0 right-0 bg-[#1e1e1e] border border-[#404040] rounded-lg mt-2 max-h-60 overflow-y-auto z-50 shadow-lg">
-          {error ? (
-            <li className="px-4 py-3 text-red-400 text-center">
-              <div className="text-sm font-medium">⚠️ Search Error</div>
-              <div className="text-xs mt-1 text-red-300">{error}</div>
-            </li>
-          ) : results?.length > 0 ? (
+          {results?.length > 0 ? (
             results.map((symbol) => (
               <li
                 key={symbol}
@@ -144,26 +79,15 @@ export default function SymbolSearch({ onSelect }) {
                   onSelect(symbol);
                   setQuery(symbol);
                   setShowDropdown(false);
-                  logInfo('SELECT_SYMBOL', 'Symbol selected', { symbol });
                 }}
                 className="px-4 py-3 cursor-pointer hover:bg-[#404040] transition text-green-400 font-bold"
               >
                 {symbol}
               </li>
             ))
-          ) : loading ? (
-            <li className="px-4 py-3 text-gray-400 text-center">
-              <div className="flex items-center justify-center gap-2">
-                <div className="w-4 h-4 border-2 border-green-400 border-t-transparent rounded-full animate-spin"></div>
-                Searching...
-              </div>
-            </li>
           ) : (
             <li className="px-4 py-3 text-gray-400 text-center">
-              No symbols found
-              {query && (
-                <div className="text-xs mt-1">Try a different search term</div>
-              )}
+              No results found
             </li>
           )}
         </ul>
@@ -171,10 +95,7 @@ export default function SymbolSearch({ onSelect }) {
 
       {loading && (
         <div className="absolute left-0 right-0 mt-1 text-center text-xs text-gray-400">
-          <div className="flex items-center justify-center gap-2">
-            <div className="w-3 h-3 border border-green-400 border-t-transparent rounded-full animate-spin"></div>
-            {error ? 'Retrying...' : 'Searching symbols...'}
-          </div>
+          Loading...
         </div>
       )}
     </div>
