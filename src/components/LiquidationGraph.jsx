@@ -4,6 +4,7 @@ import LiquidationChart from './charts/LiquidationChart';
 import LiquidationHeatmap from './charts/LiquidationHeatmap';
 import SymbolSearch from '../components/SymbolSearch';
 import axios from 'axios';
+import CircularLoader from './CircularLoader';
 
 // Register chart components (unused but kept for compatibility)
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend);
@@ -66,13 +67,13 @@ const LiquidationGraph = () => {
     const getData = async () => {
       try {
         setLoading(true);
-  const res = await axios.get(`${API_BASE}/get_price/${symbol}`);
+        const res = await axios.get(`${API_BASE}/get_price/${symbol}`);
         const fetchedPrice = parseFloat(res.data.price);
         setCurrentPrice(fetchedPrice);
 
-  // Calculate ±10% range for wider spread
-  const minPrice = fetchedPrice * 0.90; // 10% below
-  const maxPrice = fetchedPrice * 1.10; // 10% above
+        // Calculate ±10% range for wider spread
+        const minPrice = fetchedPrice * 0.90; // 10% below
+        const maxPrice = fetchedPrice * 1.10; // 10% above
         const priceRange = maxPrice - minPrice;
         const numPoints = 151; // match design
         const priceStep = priceRange / (numPoints - 1); // Evenly spaced steps
@@ -122,7 +123,6 @@ const LiquidationGraph = () => {
         newData[middleIndex].price = Math.round(fetchedPrice * 100) / 100;
 
         setData(newData);
-        console.log('Generated data with exchange breakdowns:', newData);
       } catch (err) {
         console.error('Error fetching price:', err);
         // Fallback to dummy data if API fails
@@ -156,7 +156,9 @@ const LiquidationGraph = () => {
           </h2>
         </div>
         {loading ? (
-          <div className="text-white">Loading...</div>
+          <div className='flex items-center justify-center'>
+            <div className="text-white"><CircularLoader/></div>
+          </div>
         ) : (
           <>
             <LiquidationChart data={data} currentPrice={currentPrice} />

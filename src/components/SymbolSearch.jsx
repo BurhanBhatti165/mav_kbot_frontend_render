@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from "react";
+import { useCrypto } from "../context/CryptoContext.jsx";
 
 export default function SymbolSearch({ onSelect }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
+  const { coins, loading } = useCrypto(); // Using the context to get coins
 
-  const API_BASE = import.meta.env.VITE_API_BASE_URL;
   const wrapperRef = useRef(null);
 
   // Close dropdown if clicked outside
@@ -22,37 +22,20 @@ export default function SymbolSearch({ onSelect }) {
     };
   }, []);
 
-  // Fetch symbols whenever query changes or dropdown is opened
+  // Filter coins based on query
   useEffect(() => {
     if (!showDropdown) return;
 
-    const timeout = setTimeout(async () => {
-      setLoading(true);
-      try {
-        const url = query
-          ? `${API_BASE}/api/search?q=${query}`
-          : `${API_BASE}/api/search`; // ✅ empty query returns all
-
-        const res = await fetch(url);
-        let data;
-        try {
-          const json = await res.json();
-          data = json.symbols || [];
-        } catch (parseErr) {
-          console.error("Response not JSON:", parseErr);
-          data = [];
-        }
-        setResults(data);
-      } catch (err) {
-        console.error("Error fetching symbols:", err);
-        setResults([]);
-      } finally {
-        setLoading(false);
+    const timeout = setTimeout(() => {
+      if (!query) {
+        setResults(coins); // Show all coins when query is empty
+      } else {
+        setResults(coins.filter(coin => coin.includes(query))); // Filter based on query
       }
     }, 300);
 
     return () => clearTimeout(timeout);
-  }, [query, showDropdown]);
+  }, [query, showDropdown, coins]);
 
   return (
     <div className="relative max-w-md mx-auto mb-5" ref={wrapperRef}>
@@ -64,9 +47,6 @@ export default function SymbolSearch({ onSelect }) {
         onFocus={() => setShowDropdown(true)}
         onChange={(e) => setQuery(e.target.value.toUpperCase())}
       />
-      {/* <span className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400">
-        🔍
-      </span> */}
 
       {/* Dropdown */}
       {showDropdown && (

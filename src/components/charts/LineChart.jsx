@@ -16,7 +16,7 @@ ChartJS.register(
   zoomPlugin
 );
 
-const LineChart = ({ data, onZoomChange }) => {
+const LineChart = ({ data, onZoomChange, symbol }) => {
   const chartRef = useRef(null);
 
   const options = {
@@ -24,7 +24,7 @@ const LineChart = ({ data, onZoomChange }) => {
     plugins: {
       title: {
         display: true,
-        text: "Crypto Price Prediction (Line Chart)"
+        text: `${symbol} Price Prediction (Line Chart)`
       },
       tooltip: {
         callbacks: {
@@ -68,7 +68,7 @@ const LineChart = ({ data, onZoomChange }) => {
 
   return (
     <div className="p-4 bg-gray-900 rounded-lg shadow-lg">
-      <h2 className="text-xl text-white mb-4">Crypto Price Prediction (Line Chart)</h2>
+      <h2 className="text-xl text-white mb-4">{symbol} Price Prediction (Line Chart)</h2>
       <Line ref={chartRef} data={data} options={options} />
     </div>
   );
