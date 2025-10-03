@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend } from 'chart.js';
 import LiquidationChart from './charts/LiquidationChart';
+import LiquidationHeatmap from './charts/LiquidationHeatmap';
 import SymbolSearch from '../components/SymbolSearch';
 import axios from 'axios';
 
@@ -15,27 +16,49 @@ const LiquidationGraph = () => {
   const [currentPrice, setCurrentPrice] = useState(null);
   const [data, setData] = useState([]);
 
-  // Dummy total liquidation data (151 points)
-  const dummyTotalLiquidation = [
-    // Original 51 points
-    1126, 1150, 1200, 1250, 1300, 1466, 1420, 1380, 1340, 1300,
-    1331, 1200, 1100, 1000, 950, 1026, 1080, 1140, 1200, 1240,
-    1285, 1300, 1280, 1270, 1265, 1357, 1300, 1250, 1200, 1150,
-    569, 600, 650, 700, 800, 900, 950, 1000, 1050, 1100,
-    1220, 1180, 1150, 1127, 1100, 710, 750, 780, 790, 795, 508,
-    // Repeated and adjusted 50 points (from previous 101-point set)
-    1126, 1140, 1190, 1240, 1290, 1450, 1410, 1370, 1330, 1290,
-    1320, 1190, 1090, 990, 940, 1016, 1070, 1130, 1190, 1230,
-    1275, 1290, 1270, 1260, 1255, 1347, 1290, 1240, 1190, 1140,
-    559, 590, 640, 690, 790, 890, 940, 990, 1040, 1090,
-    1210, 1170, 1140, 1117, 1090, 700, 740, 770, 780, 785,
-    // Additional 50 points (extended with similar pattern)
-    1120, 1130, 1180, 1230, 1280, 1440, 1400, 1360, 1320, 1280,
-    1310, 1180, 1080, 980, 930, 1006, 1060, 1120, 1180, 1220,
-    1265, 1280, 1260, 1250, 1245, 1337, 1280, 1230, 1180, 1130,
-    549, 580, 630, 680, 780, 880, 930, 980, 1030, 1080,
-    1200, 1160, 1130, 1107, 1080, 690, 730, 760, 770, 775
-  ];
+  // Procedural dummy total liquidation data that mimics twin-peak distribution
+  // with more spread and spikes like the reference image (deterministic noise)
+  const generateTwinPeakDummy = (points = 151) => {
+    const mid = Math.floor(points / 2);
+    const arr = new Array(points).fill(0);
+
+    const prng = (i) => {
+      const x = Math.sin(i * 12.9898) * 43758.5453;
+      return x - Math.floor(x);
+    };
+
+    // Scale to large magnitudes like the screenshot (80K..200M per bar)
+    const base = 80_000;                // baseline
+    const peakLeft = 180_000_000;       // left peak
+    const peakRight = 200_000_000;      // right peak
+    const sigmaNarrow = points * 0.06;  // sharp spikes
+    const sigmaWide = points * 0.12;    // shoulders
+    const offset = points * 0.12;       // distance from center
+    const valleyDepth = 0.02;           // deep valley at center
+
+    for (let i = 0; i < points; i++) {
+      const dist = i - mid;
+
+      // composite humps (narrow spike + wide shoulder) both sides
+      const leftSpike = peakLeft * Math.exp(-Math.pow((dist + offset) / sigmaNarrow, 2));
+      const leftShoulder = (peakLeft * 0.45) * Math.exp(-Math.pow((dist + offset) / sigmaWide, 2));
+      const rightSpike = peakRight * Math.exp(-Math.pow((dist - offset) / sigmaNarrow, 2));
+      const rightShoulder = (peakRight * 0.45) * Math.exp(-Math.pow((dist - offset) / sigmaWide, 2));
+
+      // deeper valley at center
+      const valley = 1 - Math.exp(-Math.pow(dist / (points * 0.035), 2)) * (1 - valleyDepth);
+
+      // spiky texture and occasional tall spikes
+      const wave = 1 + 0.25 * Math.sin(i * 0.28) + 0.12 * Math.cos(i * 0.11);
+      const noise = 0.85 + 0.3 * prng(i * 1.7) + 0.15 * prng(i * 3.1);
+      const spikeBoost = prng(i * 5.3) > 0.92 ? 1.6 : 1.0;
+
+      const total = (leftSpike + leftShoulder + rightSpike + rightShoulder + base) * valley * wave * noise * spikeBoost;
+      arr[i] = Math.max(50, Math.round(total));
+    }
+
+    return arr;
+  };
 
   const API_BASE = import.meta.env.VITE_API_BASE_URL;
 
@@ -43,26 +66,44 @@ const LiquidationGraph = () => {
     const getData = async () => {
       try {
         setLoading(true);
-        const res = await axios.get(`${API_BASE}/get_price/${symbol}`);
+  const res = await axios.get(`${API_BASE}/get_price/${symbol}`);
         const fetchedPrice = parseFloat(res.data.price);
         setCurrentPrice(fetchedPrice);
 
-        // Calculate ±5% range
-        const minPrice = fetchedPrice * 0.95; // 5% below
-        const maxPrice = fetchedPrice * 1.05; // 5% above
+  // Calculate ±10% range for wider spread
+  const minPrice = fetchedPrice * 0.90; // 10% below
+  const maxPrice = fetchedPrice * 1.10; // 10% above
         const priceRange = maxPrice - minPrice;
-        const numPoints = 151; // Decreased to 151 points
+        const numPoints = 151; // match design
         const priceStep = priceRange / (numPoints - 1); // Evenly spaced steps
 
         // Generate new data array with exchange breakdowns
+        const totals = generateTwinPeakDummy(numPoints);
         const newData = Array.from({ length: numPoints }, (_, index) => {
           const price = minPrice + index * priceStep;
-          const total = dummyTotalLiquidation[index];
+          const total = totals[index];
 
-          // Generate dummy proportions for exchanges (varying per point, sum to total)
-          const binanceRatio = 0.3 + 0.2 * Math.sin(index * 0.04) + Math.random() * 0.1;
-          const bybitRatio = 0.3 + 0.2 * Math.cos(index * 0.04) + Math.random() * 0.1;
-          const okxRatio = 1 - binanceRatio - bybitRatio;
+          // Deterministic per-index noise emphasizing Bybit near peaks
+          const rand = (seed) => {
+            const x = Math.sin((index + seed) * 12.9898) * 43758.5453;
+            return x - Math.floor(x);
+          };
+          const midIdx = Math.floor(numPoints / 2);
+          const peakOffset = numPoints * 0.12;
+          const sigma = numPoints * 0.08;
+          const leftProx = Math.exp(-Math.pow((index - (midIdx - peakOffset)) / sigma, 2));
+          const rightProx = Math.exp(-Math.pow((index - (midIdx + peakOffset)) / sigma, 2));
+          const nearPeak = Math.max(leftProx, rightProx);
+
+          let bybitRatio = 0.22 + 0.38 * nearPeak + 0.06 * (rand(1) - 0.5);
+          let binanceRatio = 0.46 - 0.18 * nearPeak + 0.06 * (rand(2) - 0.5);
+          let okxRatio = 1 - bybitRatio - binanceRatio;
+          const clamp01 = (v) => Math.max(0.05, Math.min(0.9, v));
+          bybitRatio = clamp01(bybitRatio);
+          binanceRatio = clamp01(binanceRatio);
+          okxRatio = clamp01(okxRatio);
+          const sumR = bybitRatio + binanceRatio + okxRatio;
+          bybitRatio /= sumR; binanceRatio /= sumR; okxRatio /= sumR;
           const binance = Math.round(total * Math.max(0, Math.min(1, binanceRatio)));
           const bybit = Math.round(total * Math.max(0, Math.min(1, bybitRatio)));
           const okx = total - binance - bybit; // Ensure sum is exact
@@ -85,7 +126,8 @@ const LiquidationGraph = () => {
       } catch (err) {
         console.error('Error fetching price:', err);
         // Fallback to dummy data if API fails
-        const fallbackData = dummyTotalLiquidation.map((total, index) => ({
+        const totals = generateTwinPeakDummy(151);
+        const fallbackData = totals.map((total, index) => ({
           price: 47500 + index * (5000 / (151 - 1)), // Adjusted for 151 points
           binance: Math.round(total * 0.4),
           bybit: Math.round(total * 0.3),
@@ -116,7 +158,13 @@ const LiquidationGraph = () => {
         {loading ? (
           <div className="text-white">Loading...</div>
         ) : (
-          <LiquidationChart data={data} currentPrice={currentPrice} />
+          <>
+            <LiquidationChart data={data} currentPrice={currentPrice} />
+            <div className="mt-8 w-full">
+              <h2 className="text-xl text-start text-white mb-4">{symbol || ''} Heatmap (Experimental)</h2>
+              <LiquidationHeatmap data={data} currentPrice={currentPrice} symbol={symbol} apiBase={API_BASE} interval="15m" limit={120} />
+            </div>
+          </>
         )}
       </div>
     </div>
